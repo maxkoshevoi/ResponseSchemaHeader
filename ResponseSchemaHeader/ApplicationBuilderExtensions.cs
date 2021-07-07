@@ -1,5 +1,4 @@
-﻿using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -8,9 +7,9 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 
-namespace ResponseSchemaHeader
+namespace Microsoft.AspNetCore.Builder
 {
-	public static class ApplicationBuilderExtensions
+    public static class ApplicationBuilderExtensions
 	{
 		public static void UseResponseSchemaHeader(this IApplicationBuilder app)
 		{
