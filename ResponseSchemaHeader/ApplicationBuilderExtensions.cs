@@ -19,6 +19,8 @@ namespace Microsoft.AspNetCore.Builder
 			ResponseSchemaHeaderOptions options = new();
 			setupAction(options);
 
+			StringComparer stringComparer = options.CaseSensitive ? StringComparer.InvariantCulture : StringComparer.InvariantCultureIgnoreCase;
+
 			app.Use(async (context, next) =>
 			{
 				string? responseSchema = context.Request.Headers[options.HeaderName].FirstOrDefault();
@@ -38,7 +40,10 @@ namespace Microsoft.AspNetCore.Builder
 				JToken schemaToken;
 				try
                 {
-					schemaToken = JToken.Parse(schema);
+					schemaToken = JToken.Parse(schema, new JsonLoadSettings 
+					{ 
+						DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error 
+					});
                 }
                 catch (JsonReaderException ex)
                 {
@@ -79,7 +84,7 @@ namespace Microsoft.AspNetCore.Builder
 				}
 			}
 
-			static string RemoveNonSchemaProperties(JToken fullModel, JArray schema)
+			string RemoveNonSchemaProperties(JToken fullModel, JArray schema)
 			{
 				if (fullModel is JArray array && array.Any())
 				{
@@ -96,7 +101,7 @@ namespace Microsoft.AspNetCore.Builder
 
                 return fullModel.ToString();
 
-                static void ProcessItem(JObject item, JArray schema)
+                void ProcessItem(JObject item, JArray schema)
                 {
 					List<string> neededProperties = schema
 						.Select(p => p switch
@@ -107,8 +112,14 @@ namespace Microsoft.AspNetCore.Builder
 						})
 						.ToList();
 
-					List<string> allProperties = item.Properties().Select(p => p.Name).ToList();
-                    List<string> propertiesToRemove = allProperties.Except(neededProperties).ToList();
+                    List<string> duplicatingProperties = neededProperties.GroupBy(p => p, stringComparer).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+                    if (duplicatingProperties.Any())
+                    {
+						throw new ResponseSchemaHeaderException($"Response schema contains duplicating properties: {string.Join(", ", duplicatingProperties)}");
+                    }
+
+					IEnumerable<string> allProperties = item.Properties().Select(p => p.Name);
+                    List<string> propertiesToRemove = allProperties.Except(neededProperties, stringComparer).ToList();
 
 					propertiesToRemove.ForEach(p => item.Remove(p));
 

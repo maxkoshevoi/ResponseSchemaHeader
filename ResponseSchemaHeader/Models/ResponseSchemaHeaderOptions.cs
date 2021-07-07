@@ -4,14 +4,6 @@
     {
         public string HeaderName { get; set; } = "ResponseSchema";
 
-        public bool CaseSensitive { get; } = true;
-
-        public UnknownPropertyHandling UnknownPropertyHandling { get; } = UnknownPropertyHandling.Ignore;
-    }
-
-    public enum UnknownPropertyHandling
-    {
-        Ignore,
-        Error
+        public bool CaseSensitive { get; set; } = false;
     }
 }
