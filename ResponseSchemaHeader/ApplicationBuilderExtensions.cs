@@ -1,38 +1,47 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
-using System.IO;
+using System.ComponentModel;
+using System.Dynamic;
 using System.Linq;
-using System.Net.Http;
 using System.Threading.Tasks;
 
-namespace Microsoft.AspNetCore.Builder
+namespace Microsoft.Extensions.DependencyInjection
 {
     public static class ApplicationBuilderExtensions
 	{
-		public static void UseResponseSchemaHeader(this IApplicationBuilder app)
+        public static IServiceCollection AddResponseSchemaHeader(this IServiceCollection services) =>
+			services.AddSingleton<IActionResultExecutor<ObjectResult>, ResponseEnvelopeResultExecutor>();
+
+        internal class ResponseEnvelopeResultExecutor : ObjectResultExecutor
 		{
-			app.Use(async (context, next) =>
+			public ResponseEnvelopeResultExecutor(OutputFormatterSelector formatterSelector, IHttpResponseStreamWriterFactory writerFactory, ILoggerFactory loggerFactory, IOptions<MvcOptions> mvcOptions)
+				: base(formatterSelector, writerFactory, loggerFactory, mvcOptions)
 			{
-				string? responseSchema = context.Request.Headers["ResponseSchema"].FirstOrDefault();
-				if (responseSchema == null)
+			}
+
+			public override Task ExecuteAsync(ActionContext context, ObjectResult result)
+			{
+				string? responseSchema = context.HttpContext.Request.Headers["ResponseSchema"].FirstOrDefault();
+                TypeCode typeCode = Type.GetTypeCode(result.Value.GetType());
+				if (typeCode == TypeCode.Object && responseSchema != null)
 				{
-					await next();
-					return;
-				}
+					object newResponse = RemoveNonSchemaProperties(ToDynamic(result.Value), JArray.Parse(responseSchema));
+					result.Value = newResponse;
+                }
 
-				await ModifyResponseBody(context.Response, next, oldResponse => RemoveNonSchemaProperties(oldResponse, responseSchema));
-			});
+                return base.ExecuteAsync(context, result);
+			}
 
-			static string RemoveNonSchemaProperties(string fullModel, string schema)
+			private static IDictionary<string, object?> RemoveNonSchemaProperties(IDictionary<string, object?> fullModel, JArray schema)
 			{
-				JToken fullModelJson = JToken.Parse(fullModel);
+				List<string> neededProperties = schema.Select(p => ((JValue)p).Value!.ToString()!.ToLower()).ToList();
 
-				JArray schemaJson = JArray.Parse(schema);
-				List<string> neededProperties = schemaJson.Select(p => ((JValue)p).Value!.ToString()!.ToLower()).ToList();
-
-				if (fullModelJson is JArray array && array.Any())
+				if (fullModel is JArray array && array.Any())
 				{
 					var firstItem = array.First() as JObject;
 
@@ -44,53 +53,27 @@ namespace Microsoft.AspNetCore.Builder
 						propertiesToRemove.ForEach(p => item.Remove(p));
 					}
 				}
-				else if (fullModelJson is JObject item)
+				else if (fullModel is JObject item)
 				{
 					List<string> allProperties = item.Properties().Select(p => p.Name.ToLower()).ToList();
 					List<string> propertiesToRemove = allProperties.Except(neededProperties).ToList();
 
 					propertiesToRemove.ForEach(p => item.Remove(p));
-					fullModelJson = item;
+					fullModel = (dynamic)item;
 				}
 
-				return fullModelJson.ToString();
+				return fullModel;
 			}
 
-			static async Task ModifyResponseBody(HttpResponse response, Func<Task> next, Func<string, string> modifier)
+			public static IDictionary<string, object?> ToDynamic(object value)
 			{
-				// Set the response body to our stream, so we can read after the chain of middlewares have been called.
-				Stream originBody = ReplaceBody(response);
-
-				await next();
-
-				string oldResponse;
-				using (StreamReader streamReader = new(response.Body))
+				IDictionary<string, object?> expando = new ExpandoObject();
+				var properties = TypeDescriptor.GetProperties(value.GetType());
+				foreach (PropertyDescriptor prop in properties)
 				{
-					response.Body.Seek(0, SeekOrigin.Begin);
-					oldResponse = await streamReader.ReadToEndAsync();
+					expando.Add(prop.Name, prop.GetValue(value));
 				}
-
-				string newResponse = modifier(oldResponse);
-
-				// Create a new stream with the modified body, and reset the content length to match the new stream
-				response.Body = await new StringContent(newResponse).ReadAsStreamAsync();
-				response.ContentLength = response.Body.Length;
-
-				await ReturnBody(response, originBody);
-
-				static Stream ReplaceBody(HttpResponse response)
-				{
-					Stream originBody = response.Body;
-					response.Body = new MemoryStream();
-					return originBody;
-				}
-
-				static async Task ReturnBody(HttpResponse response, Stream originBody)
-				{
-					response.Body.Seek(0, SeekOrigin.Begin);
-					await response.Body.CopyToAsync(originBody);
-					response.Body = originBody;
-				}
+				return expando;
 			}
 		}
 	}
