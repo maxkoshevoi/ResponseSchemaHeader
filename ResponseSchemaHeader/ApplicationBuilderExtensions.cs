@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Http;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -11,50 +12,107 @@ namespace Microsoft.AspNetCore.Builder
 {
     public static class ApplicationBuilderExtensions
 	{
-		public static void UseResponseSchemaHeader(this IApplicationBuilder app)
+		public static void UseResponseSchemaHeader(this IApplicationBuilder app) => UseResponseSchemaHeader(app, _ => { });
+
+		public static void UseResponseSchemaHeader(this IApplicationBuilder app, Action<ResponseSchemaHeaderOptions> setupAction)
 		{
+			ResponseSchemaHeaderOptions options = new();
+			setupAction(options);
+
 			app.Use(async (context, next) =>
 			{
-				string? responseSchema = context.Request.Headers["ResponseSchema"].FirstOrDefault();
+				string? responseSchema = context.Request.Headers[options.HeaderName].FirstOrDefault();
 				if (responseSchema == null)
 				{
 					await next();
 					return;
 				}
 
-				await ModifyResponseBody(context.Response, next, oldResponse => RemoveNonSchemaProperties(oldResponse, responseSchema));
+				JArray schemaJson = ValidateSchema(responseSchema);
+
+				await ModifyResponseBody(context.Response, next, oldResponse => RemoveNonSchemaProperties(JToken.Parse(oldResponse), schemaJson));
 			});
 
-			static string RemoveNonSchemaProperties(string fullModel, string schema)
+			static JArray ValidateSchema(string schema)
 			{
-				JToken fullModelJson = JToken.Parse(fullModel);
+				JToken schemaToken;
+				try
+                {
+					schemaToken = JToken.Parse(schema);
+                }
+                catch (JsonReaderException ex)
+                {
+					throw new ResponseSchemaHeaderException($"Response schema contains invalid JSON: {ex.Message}", ex);
+				}
 
-				JArray schemaJson = JArray.Parse(schema);
-				List<string> neededProperties = schemaJson.Select(p => ((JValue)p).Value!.ToString()!.ToLower()).ToList();
+                if (schemaToken is not JArray)
+                {
+					throw new ResponseSchemaHeaderException("Response schema needs to be an array");
+                }
 
-				if (fullModelJson is JArray array && array.Any())
+                JArray schemaArray = (JArray)schemaToken;
+                ValidateSchema(schemaArray);
+
+				return schemaArray;
+
+				static void ValidateSchema(JArray schema)
 				{
-					var firstItem = array.First() as JObject;
+					foreach (var item in schema)
+					{
+                        if (item is JObject nestedSchema)
+                        {
+							var properties = nestedSchema.Properties().ToList();
+                            if (properties.Count == 1 && properties[0].Value is JArray array)
+                            {
+								ValidateSchema(array);
+                            }
+                            else
+                            {
+								throw new ResponseSchemaHeaderException($"Object values in response schema can contain only one property with type of array. Unexpected token: \"{item}\"");
+							}
+                        }
+                        else if (item.Type != JTokenType.String)
+                        {
+							throw new ResponseSchemaHeaderException($"Response schema can contain only string and object values. Unexpected token: \"{item}\"");
+                        }
+					}
+				}
+			}
 
-					List<string> allProperties = firstItem!.Properties().Select(p => p.Name.ToLower()).ToList();
-					List<string> propertiesToRemove = allProperties.Except(neededProperties).ToList();
+			static string RemoveNonSchemaProperties(JToken fullModel, JArray schema)
+			{
+				List<string> neededProperties = schema
+					.Where(p => p is JValue)
+					.Select(p => ((JValue)p).Value!.ToString()!)
+					.ToList();
+
+				if (fullModel is JArray array && array.Any())
+				{
+					var firstItem = (JObject)array.First();
+					List<string> propertiesToRemove = GetPropertiesToRemove(neededProperties, firstItem);
 
 					foreach (JObject item in array)
 					{
 						propertiesToRemove.ForEach(p => item.Remove(p));
 					}
 				}
-				else if (fullModelJson is JObject item)
-				{
-					List<string> allProperties = item.Properties().Select(p => p.Name.ToLower()).ToList();
-					List<string> propertiesToRemove = allProperties.Except(neededProperties).ToList();
+				else if (fullModel is JObject item)
+                {
+                    List<string> propertiesToRemove = GetPropertiesToRemove(neededProperties, item);
 
-					propertiesToRemove.ForEach(p => item.Remove(p));
-					fullModelJson = item;
-				}
+                    propertiesToRemove.ForEach(p => item.Remove(p));
+                    fullModel = item;
+                }
 
-				return fullModelJson.ToString();
-			}
+                return fullModel.ToString();
+
+                static List<string> GetPropertiesToRemove(List<string> neededProperties, JObject item)
+                {
+                    List<string> allProperties = item.Properties().Select(p => p.Name).ToList();
+                    List<string> propertiesToRemove = allProperties.Except(neededProperties).ToList();
+                    return propertiesToRemove;
+                }
+            }
 
 			static async Task ModifyResponseBody(HttpResponse response, Func<Task> next, Func<string, string> modifier)
 			{
@@ -93,5 +151,5 @@ namespace Microsoft.AspNetCore.Builder
 				}
 			}
 		}
-	}
+    }
 }
