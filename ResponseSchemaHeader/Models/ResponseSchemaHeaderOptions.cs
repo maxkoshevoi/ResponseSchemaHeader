@@ -1,4 +1,4 @@
-﻿namespace Microsoft.AspNetCore.Builder
+﻿namespace ResponseSchemaHeader
 {
     public class ResponseSchemaHeaderOptions
     {
