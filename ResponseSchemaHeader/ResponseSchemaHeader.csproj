@@ -6,6 +6,14 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
+
+    <PackageId>ResponseSchemaHeader</PackageId>
+    <Version>0.7.0</Version>
+    <Authors>Maksym Koshovyi</Authors>
+    <RepositoryUrl>https://github.com/maxkoshevoi/ResponseSchemaHeader</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Description>ASP.NET Core API middleware that allows client to specify what part of the response they need, and cuts out everything else before it's sent to the client.</Description>
+    <PackageTags>asp-net-web-api,graphql-rest,middleware</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
