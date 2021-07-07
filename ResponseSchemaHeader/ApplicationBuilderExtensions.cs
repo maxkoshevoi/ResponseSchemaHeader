@@ -81,37 +81,42 @@ namespace Microsoft.AspNetCore.Builder
 
 			static string RemoveNonSchemaProperties(JToken fullModel, JArray schema)
 			{
-				List<string> neededProperties = schema
-					.Where(p => p is JValue)
-					.Select(p => ((JValue)p).Value!.ToString()!)
-					.ToList();
-
 				if (fullModel is JArray array && array.Any())
 				{
-					var firstItem = (JObject)array.First();
-					List<string> propertiesToRemove = GetPropertiesToRemove(neededProperties, firstItem);
-
 					foreach (JObject item in array)
 					{
-						propertiesToRemove.ForEach(p => item.Remove(p));
+						ProcessItem(item, schema);
 					}
 				}
 				else if (fullModel is JObject item)
                 {
-                    List<string> propertiesToRemove = GetPropertiesToRemove(neededProperties, item);
-
-                    propertiesToRemove.ForEach(p => item.Remove(p));
+                    ProcessItem(item, schema);
                     fullModel = item;
                 }
 
                 return fullModel.ToString();
 
-                static List<string> GetPropertiesToRemove(List<string> neededProperties, JObject item)
+                static void ProcessItem(JObject item, JArray schema)
                 {
-                    List<string> allProperties = item.Properties().Select(p => p.Name).ToList();
+					List<string> neededProperties = schema
+						.Select(p => p switch
+						{
+							JValue value => value.ToString(),
+							JObject obj => obj.Properties().First().Name,
+							_ => throw new NotImplementedException()
+						})
+						.ToList();
+
+					List<string> allProperties = item.Properties().Select(p => p.Name).ToList();
                     List<string> propertiesToRemove = allProperties.Except(neededProperties).ToList();
-                    return propertiesToRemove;
-                }
+
+					propertiesToRemove.ForEach(p => item.Remove(p));
+
+                    foreach (var nestedSchema in schema.OfType<JObject>().Select(s => s.Properties().First()))
+                    {
+						ProcessItem((JObject)item[nestedSchema.Name]!, (JArray)nestedSchema.Value);
+                    }
+				}
             }
 
 			static async Task ModifyResponseBody(HttpResponse response, Func<Task> next, Func<string, string> modifier)
