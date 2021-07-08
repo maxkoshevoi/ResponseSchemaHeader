@@ -82,7 +82,7 @@ For example, let's say your action returns following information:
 ```
 
 And you only need `registration` and `vehicleModel.code` on your client.
-After adding this header to the request:
+After adding this header to the request (it's case insensitive by default):
 
 ```json
 ResponseSchema: [ "Registration", "ModelCode", { "vehicleModel": [ "code" ] } ]
