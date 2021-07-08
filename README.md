@@ -85,7 +85,7 @@ And you only need `registration` and `vehicleModel.code` on your client.
 After adding this header to the request (it's case insensitive by default):
 
 ```json
-ResponseSchema: [ "Registration", "ModelCode", { "vehicleModel": [ "code" ] } ]
+ResponseSchema: [ "Registration", { "vehicleModel": [ "code" ] } ]
 ```
 
 Response will be:
