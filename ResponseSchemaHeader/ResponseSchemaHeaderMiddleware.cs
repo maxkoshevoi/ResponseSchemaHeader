@@ -20,7 +20,7 @@ namespace ResponseSchemaHeader
             _next = next;
             _options = options;
             
-			_stringComparer = options.CaseSensitive ? StringComparer.InvariantCulture : StringComparer.InvariantCultureIgnoreCase;
+            _stringComparer = options.CaseSensitive ? StringComparer.InvariantCulture : StringComparer.InvariantCultureIgnoreCase;
         }
 
         public async Task InvokeAsync(HttpContext context)
@@ -37,99 +37,99 @@ namespace ResponseSchemaHeader
             await context.Response.ModifyBodyAsync(() => _next(context), oldResponse => RemoveNonSchemaProperties(JToken.Parse(oldResponse), schema));
         }
 
-		private static JArray ValidateSchema(string schema)
-		{
-			JToken schemaToken;
-			try
-			{
-				schemaToken = JToken.Parse(schema, new JsonLoadSettings
-				{
-					DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error
-				});
-			}
-			catch (JsonReaderException ex)
-			{
-				throw new ResponseSchemaHeaderException($"Response schema contains invalid JSON: {ex.Message}", ex);
-			}
+        private static JArray ValidateSchema(string schema)
+        {
+            JToken schemaToken;
+            try
+            {
+                schemaToken = JToken.Parse(schema, new JsonLoadSettings
+                {
+                    DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error
+                });
+            }
+            catch (JsonReaderException ex)
+            {
+                throw new ResponseSchemaHeaderException($"Response schema contains invalid JSON: {ex.Message}", ex);
+            }
 
-			if (schemaToken is not JArray)
-			{
-				throw new ResponseSchemaHeaderException("Response schema needs to be an array");
-			}
+            if (schemaToken is not JArray)
+            {
+                throw new ResponseSchemaHeaderException("Response schema needs to be an array");
+            }
 
-			JArray schemaArray = (JArray)schemaToken;
-			ValidateSchema(schemaArray);
+            JArray schemaArray = (JArray)schemaToken;
+            ValidateSchema(schemaArray);
 
-			return schemaArray;
+            return schemaArray;
 
-			static void ValidateSchema(JArray schema)
-			{
-				foreach (var item in schema)
-				{
-					if (item is JObject nestedSchema)
-					{
-						var properties = nestedSchema.Properties().ToList();
-						if (properties.Count == 1 && properties[0].Value is JArray array)
-						{
-							ValidateSchema(array);
-						}
-						else
-						{
-							throw new ResponseSchemaHeaderException($"Object values in response schema can contain only one property with type of array. Unexpected token: \"{item}\"");
-						}
-					}
-					else if (item.Type != JTokenType.String)
-					{
-						throw new ResponseSchemaHeaderException($"Response schema can contain only string and object values. Unexpected token: \"{item}\"");
-					}
-				}
-			}
-		}
+            static void ValidateSchema(JArray schema)
+            {
+                foreach (var item in schema)
+                {
+                    if (item is JObject nestedSchema)
+                    {
+                        var properties = nestedSchema.Properties().ToList();
+                        if (properties.Count == 1 && properties[0].Value is JArray array)
+                        {
+                            ValidateSchema(array);
+                        }
+                        else
+                        {
+                            throw new ResponseSchemaHeaderException($"Object values in response schema can contain only one property with type of array. Unexpected token: \"{item}\"");
+                        }
+                    }
+                    else if (item.Type != JTokenType.String)
+                    {
+                        throw new ResponseSchemaHeaderException($"Response schema can contain only string and object values. Unexpected token: \"{item}\"");
+                    }
+                }
+            }
+        }
 
-		private string RemoveNonSchemaProperties(JToken fullModel, JArray schema)
-		{
-			if (fullModel is JArray array && array.Any())
-			{
-				foreach (JObject item in array)
-				{
-					ProcessItem(item, schema);
-				}
-			}
-			else if (fullModel is JObject item)
-			{
-				ProcessItem(item, schema);
-				fullModel = item;
-			}
+        private string RemoveNonSchemaProperties(JToken fullModel, JArray schema)
+        {
+            if (fullModel is JArray array && array.Any())
+            {
+                foreach (JObject item in array)
+                {
+                    ProcessItem(item, schema);
+                }
+            }
+            else if (fullModel is JObject item)
+            {
+                ProcessItem(item, schema);
+                fullModel = item;
+            }
 
-			return fullModel.ToString();
+            return fullModel.ToString();
 
-			void ProcessItem(JObject item, JArray schema)
-			{
-				List<string> neededProperties = schema
-					.Select(p => p switch
-					{
-						JValue value => value.ToString(),
-						JObject obj => obj.Properties().First().Name,
-						_ => throw new NotImplementedException()
-					})
-					.ToList();
+            void ProcessItem(JObject item, JArray schema)
+            {
+                List<string> neededProperties = schema
+                    .Select(p => p switch
+                    {
+                        JValue value => value.ToString(),
+                        JObject obj => obj.Properties().First().Name,
+                        _ => throw new NotImplementedException()
+                    })
+                    .ToList();
 
-				List<string> duplicatingProperties = neededProperties.GroupBy(p => p, _stringComparer).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
-				if (duplicatingProperties.Any())
-				{
-					throw new ResponseSchemaHeaderException($"Response schema contains duplicating properties: {string.Join(", ", duplicatingProperties)}");
-				}
+                List<string> duplicatingProperties = neededProperties.GroupBy(p => p, _stringComparer).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+                if (duplicatingProperties.Any())
+                {
+                    throw new ResponseSchemaHeaderException($"Response schema contains duplicating properties: {string.Join(", ", duplicatingProperties)}");
+                }
 
-				IEnumerable<string> allProperties = item.Properties().Select(p => p.Name);
-				List<string> propertiesToRemove = allProperties.Except(neededProperties, _stringComparer).ToList();
+                IEnumerable<string> allProperties = item.Properties().Select(p => p.Name);
+                List<string> propertiesToRemove = allProperties.Except(neededProperties, _stringComparer).ToList();
 
-				propertiesToRemove.ForEach(p => item.Remove(p));
+                propertiesToRemove.ForEach(p => item.Remove(p));
 
-				foreach (var nestedSchema in schema.OfType<JObject>().Select(s => s.Properties().First()))
-				{
-					ProcessItem((JObject)item[nestedSchema.Name]!, (JArray)nestedSchema.Value);
-				}
-			}
-		}
-	}
+                foreach (var nestedSchema in schema.OfType<JObject>().Select(s => s.Properties().First()))
+                {
+                    ProcessItem((JObject)item[nestedSchema.Name]!, (JArray)nestedSchema.Value);
+                }
+            }
+        }
+    }
 }
